@@ -42,11 +42,7 @@ public class SailingBadPlugin extends Plugin
 	private SailingBadConfig config;
 
 	// The bar the total level sits in before we shrink it into the Sailing slot.
-	private int totalHomeX = -1;
-	private int totalHomeY = -1;
-	private int totalHomeWidth = -1;
-	private int totalHomeHeight = -1;
-	private boolean totalMoved;
+	private Layout totalHome;
 	private boolean sailingHidden;
 
 	@Provides
@@ -131,52 +127,35 @@ public class SailingBadPlugin extends Plugin
 
 		if (!config.hideSailing() || !config.moveTotalLevel())
 		{
-			if (totalMoved)
-			{
-				restoreTotalTilePosition(total);
-			}
-
+			restoreTotalTilePosition(total);
 			return;
 		}
 
-		if (!totalMoved)
+		if (totalHome == null)
 		{
-			totalHomeX = total.getOriginalX();
-			totalHomeY = total.getOriginalY();
-			totalHomeWidth = total.getOriginalWidth();
-			totalHomeHeight = total.getOriginalHeight();
-			totalMoved = true;
+			totalHome = Layout.of(total);
 		}
 
 		// Sailing pushes the total level onto a row of its own, as a bar spanning
-		// all three columns. Taking the Sailing tile's geometry wholesale puts it
-		// back in the gap Sailing leaves behind, sized like the tile it replaces
-		// rather than as a full-width bar that would overflow the column.
-		if (total.getOriginalX() != sailing.getOriginalX()
-			|| total.getOriginalY() != sailing.getOriginalY()
-			|| total.getOriginalWidth() != sailing.getOriginalWidth()
-			|| total.getOriginalHeight() != sailing.getOriginalHeight())
+		// all three columns. Taking the Sailing tile's whole layout puts it back in
+		// the gap Sailing leaves behind, shaped like the tile it replaces rather
+		// than as a full-width bar that would overflow the column.
+		Layout slot = Layout.of(sailing);
+		if (!slot.matches(total))
 		{
-			total.setOriginalX(sailing.getOriginalX());
-			total.setOriginalY(sailing.getOriginalY());
-			total.setOriginalWidth(sailing.getOriginalWidth());
-			total.setOriginalHeight(sailing.getOriginalHeight());
+			slot.applyTo(total);
 			relayout(total);
 		}
 	}
 
 	private void restoreTotalTilePosition(Widget total)
 	{
-		if (totalHomeX >= 0)
+		if (totalHome != null)
 		{
-			total.setOriginalX(totalHomeX);
-			total.setOriginalY(totalHomeY);
-			total.setOriginalWidth(totalHomeWidth);
-			total.setOriginalHeight(totalHomeHeight);
+			totalHome.applyTo(total);
 			relayout(total);
+			totalHome = null;
 		}
-
-		totalMoved = false;
 	}
 
 	/**
@@ -298,7 +277,7 @@ public class SailingBadPlugin extends Plugin
 			}
 
 			Widget total = client.getWidget(InterfaceID.Stats.TOTAL);
-			if (total != null && totalMoved)
+			if (total != null)
 			{
 				restoreTotalTilePosition(total);
 			}
@@ -319,11 +298,7 @@ public class SailingBadPlugin extends Plugin
 
 	private void forgetLayout()
 	{
-		totalHomeX = -1;
-		totalHomeY = -1;
-		totalHomeWidth = -1;
-		totalHomeHeight = -1;
-		totalMoved = false;
+		totalHome = null;
 		sailingHidden = false;
 	}
 
@@ -437,6 +412,65 @@ public class SailingBadPlugin extends Plugin
 	private static boolean isDigit(char c)
 	{
 		return c >= '0' && c <= '9';
+	}
+
+	/**
+	 * A widget's layout inputs. The modes have to travel with the values: they
+	 * decide what the values mean, so a width of 62 against the bar's mode is not
+	 * the 62 pixels a tile means by it, and an x of 0 can be an offset from the
+	 * centre rather than from the left edge.
+	 */
+	private static final class Layout
+	{
+		private final int x;
+		private final int y;
+		private final int width;
+		private final int height;
+		private final int xPositionMode;
+		private final int yPositionMode;
+		private final int widthMode;
+		private final int heightMode;
+
+		private Layout(Widget widget)
+		{
+			x = widget.getOriginalX();
+			y = widget.getOriginalY();
+			width = widget.getOriginalWidth();
+			height = widget.getOriginalHeight();
+			xPositionMode = widget.getXPositionMode();
+			yPositionMode = widget.getYPositionMode();
+			widthMode = widget.getWidthMode();
+			heightMode = widget.getHeightMode();
+		}
+
+		static Layout of(Widget widget)
+		{
+			return new Layout(widget);
+		}
+
+		boolean matches(Widget widget)
+		{
+			return x == widget.getOriginalX()
+				&& y == widget.getOriginalY()
+				&& width == widget.getOriginalWidth()
+				&& height == widget.getOriginalHeight()
+				&& xPositionMode == widget.getXPositionMode()
+				&& yPositionMode == widget.getYPositionMode()
+				&& widthMode == widget.getWidthMode()
+				&& heightMode == widget.getHeightMode();
+		}
+
+		void applyTo(Widget widget)
+		{
+			widget.setXPositionMode(xPositionMode);
+			widget.setYPositionMode(yPositionMode);
+			widget.setWidthMode(widthMode);
+			widget.setHeightMode(heightMode);
+			widget.setOriginalX(x);
+			widget.setOriginalY(y);
+			widget.setOriginalWidth(width);
+			widget.setOriginalHeight(height);
+		}
 	}
 
 	/**
