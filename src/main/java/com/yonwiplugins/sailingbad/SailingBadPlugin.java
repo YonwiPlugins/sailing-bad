@@ -32,6 +32,9 @@ public class SailingBadPlugin extends Plugin
 	private static final int FIRST_TILE = InterfaceID.Stats.ATTACK;
 	private static final int LAST_TILE = InterfaceID.Stats.SAILING;
 	private static final int ROW_COUNT = 8;
+	private static final int TYPE_RECTANGLE = 3;
+	private static final int TYPE_TEXT = 4;
+	private static final int PANEL_COLOUR = 0x000000;
 	private static final String TOTAL_LEVEL_LABEL = "total level";
 	private static final String TOTAL_XP_LABEL = "total xp";
 	private static final int TOOLTIP_LABEL_CHILD_INDEX = 2;
@@ -48,9 +51,11 @@ public class SailingBadPlugin extends Plugin
 
 	// The bar the total level sits in before we shrink it into the Sailing slot.
 	private Layout totalHome;
-	// The y of each row, and the tile height, as Sailing leaves them.
+	// The y and height of each row as Sailing leaves them.
 	private int[] rowHomeY;
-	private int tileHomeHeight;
+	private int[] rowHomeHeight;
+	// The total level bar's own children, before we repaint them as a tile.
+	private ChildState[] totalSkinHome;
 	private boolean sailingHidden;
 
 	@Provides
@@ -151,6 +156,105 @@ public class SailingBadPlugin extends Plugin
 			slot.applyTo(total);
 			relayout(total);
 		}
+
+		applyTotalTileSkin(total);
+	}
+
+	/**
+	 * Repaints the total level bar's background as a tile-shaped panel. The bar is
+	 * drawn as a three part pill: a rounded left cap, a repeating middle and a
+	 * rounded right cap, all 36x19 sprites. Those are the wrong shape for a 62x32
+	 * tile and the caps would overlap in it, so the first of them becomes a plain
+	 * filled panel covering the tile and the rest are hidden.
+	 */
+	private void applyTotalTileSkin(Widget total)
+	{
+		Widget[] children = total.getStaticChildren();
+		if (children == null || children.length == 0)
+		{
+			return;
+		}
+
+		if (totalSkinHome == null)
+		{
+			totalSkinHome = new ChildState[children.length];
+			for (int i = 0; i < children.length; i++)
+			{
+				totalSkinHome[i] = ChildState.of(children[i]);
+			}
+		}
+
+		boolean painted = false;
+		for (Widget child : children)
+		{
+			if (child == null || child.getType() == TYPE_TEXT)
+			{
+				continue;
+			}
+
+			if (painted)
+			{
+				if (!child.isSelfHidden())
+				{
+					child.setHidden(true);
+				}
+
+				continue;
+			}
+
+			paintPanel(child, total);
+			painted = true;
+		}
+	}
+
+	private static void paintPanel(Widget panel, Widget tile)
+	{
+		int width = tile.getOriginalWidth();
+		int height = tile.getOriginalHeight();
+		if (panel.getType() == TYPE_RECTANGLE
+			&& panel.getOriginalWidth() == width
+			&& panel.getOriginalHeight() == height)
+		{
+			return;
+		}
+
+		panel.setType(TYPE_RECTANGLE);
+		panel.setFilled(true);
+		panel.setSpriteId(-1);
+		panel.setTextColor(PANEL_COLOUR);
+		panel.setOpacity(0);
+		panel.setHidden(false);
+		panel.setXPositionMode(0);
+		panel.setYPositionMode(0);
+		panel.setWidthMode(0);
+		panel.setHeightMode(0);
+		panel.setOriginalX(0);
+		panel.setOriginalY(0);
+		panel.setOriginalWidth(width);
+		panel.setOriginalHeight(height);
+		panel.revalidate();
+	}
+
+	private void restoreTotalTileSkin(Widget total)
+	{
+		if (totalSkinHome == null)
+		{
+			return;
+		}
+
+		Widget[] children = total.getStaticChildren();
+		if (children != null)
+		{
+			for (int i = 0; i < children.length && i < totalSkinHome.length; i++)
+			{
+				if (children[i] != null)
+				{
+					totalSkinHome[i].restore(children[i]);
+				}
+			}
+		}
+
+		totalSkinHome = null;
 	}
 
 	private void applyRowSpacing()
@@ -166,23 +270,24 @@ public class SailingBadPlugin extends Plugin
 			return;
 		}
 
-		// Sailing did not make the panel taller, it made the tiles shorter to fit a
-		// ninth row into the same space. Dropping back to eight rows therefore
-		// leaves a row of dead space at the bottom unless the tiles grow back into
-		// it. The nine rows span from the top tile to the foot of the total level
-		// bar, so sharing that span between eight rows restores the old height.
+		// The tab is a fixed 190x261 panel: eight rows of tiles ending at y=243,
+		// then the total level bar occupying y=241 to 260. Moving that bar up into
+		// the Sailing slot frees its strip at the foot of the panel, and nothing
+		// reflows to cover it. Sharing the whole span between the eight remaining
+		// rows spreads that strip across them instead of leaving it dead.
 		int top = rowHomeY[0];
 		int span = totalHome.y + totalHome.height - top;
-		int pitch = span / ROW_COUNT;
-		int height = pitch - (rowHomeY[1] - rowHomeY[0] - tileHomeHeight);
-		if (pitch <= 0 || height <= 0)
+		if (span <= 0)
 		{
 			return;
 		}
 
 		for (int id = FIRST_TILE; id <= LAST_TILE; id++)
 		{
-			setTileRow(id, top + rowOf(id) * pitch, height);
+			int row = rowOf(id);
+			int y = top + (int) ((long) row * span / ROW_COUNT);
+			int next = top + (int) ((long) (row + 1) * span / ROW_COUNT);
+			setTileRow(id, y, next - y);
 		}
 	}
 
@@ -195,7 +300,7 @@ public class SailingBadPlugin extends Plugin
 
 		for (int id = FIRST_TILE; id <= LAST_TILE; id++)
 		{
-			setTileRow(id, rowHomeY[rowOf(id)], tileHomeHeight);
+			setTileRow(id, rowHomeY[rowOf(id)], rowHomeHeight[rowOf(id)]);
 		}
 	}
 
@@ -214,21 +319,24 @@ public class SailingBadPlugin extends Plugin
 
 	private boolean captureRowHome()
 	{
-		int[] home = new int[ROW_COUNT];
+		int[] y = new int[ROW_COUNT];
+		int[] heights = new int[ROW_COUNT];
 		for (int row = 0; row < ROW_COUNT; row++)
 		{
-			// The first column runs top to bottom, one tile per row.
+			// The first column runs top to bottom, one tile per row. The bottom row
+			// is two pixels taller than the rest, so heights are kept per row.
 			Widget tile = client.getWidget(FIRST_TILE + row);
 			if (tile == null)
 			{
 				return false;
 			}
 
-			home[row] = tile.getOriginalY();
-			tileHomeHeight = tile.getOriginalHeight();
+			y[row] = tile.getOriginalY();
+			heights[row] = tile.getOriginalHeight();
 		}
 
-		rowHomeY = home;
+		rowHomeY = y;
+		rowHomeHeight = heights;
 		return true;
 	}
 
@@ -239,11 +347,56 @@ public class SailingBadPlugin extends Plugin
 
 	private void restoreTotalTilePosition(Widget total)
 	{
+		restoreTotalTileSkin(total);
+
 		if (totalHome != null)
 		{
 			totalHome.applyTo(total);
 			relayout(total);
 			totalHome = null;
+		}
+	}
+
+	/**
+	 * The properties {@link #paintPanel} overwrites, so the bar can be handed back
+	 * as it was found.
+	 */
+	private static final class ChildState
+	{
+		private final int type;
+		private final int spriteId;
+		private final int textColor;
+		private final int opacity;
+		private final boolean filled;
+		private final boolean hidden;
+		private final Layout layout;
+
+		private ChildState(Widget widget)
+		{
+			type = widget.getType();
+			spriteId = widget.getSpriteId();
+			textColor = widget.getTextColor();
+			opacity = widget.getOpacity();
+			filled = widget.isFilled();
+			hidden = widget.isSelfHidden();
+			layout = Layout.of(widget);
+		}
+
+		static ChildState of(Widget widget)
+		{
+			return widget == null ? null : new ChildState(widget);
+		}
+
+		void restore(Widget widget)
+		{
+			widget.setType(type);
+			widget.setSpriteId(spriteId);
+			widget.setTextColor(textColor);
+			widget.setOpacity(opacity);
+			widget.setFilled(filled);
+			widget.setHidden(hidden);
+			layout.applyTo(widget);
+			widget.revalidate();
 		}
 	}
 
@@ -391,7 +544,8 @@ public class SailingBadPlugin extends Plugin
 	{
 		totalHome = null;
 		rowHomeY = null;
-		tileHomeHeight = 0;
+		rowHomeHeight = null;
+		totalSkinHome = null;
 		sailingHidden = false;
 	}
 
