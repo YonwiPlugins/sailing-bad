@@ -41,9 +41,11 @@ public class SailingBadPlugin extends Plugin
 	@Inject
 	private SailingBadConfig config;
 
-	// Where the total level tile sits before we slide it into the Sailing slot.
+	// The bar the total level sits in before we shrink it into the Sailing slot.
 	private int totalHomeX = -1;
 	private int totalHomeY = -1;
+	private int totalHomeWidth = -1;
+	private int totalHomeHeight = -1;
 	private boolean totalMoved;
 	private boolean sailingHidden;
 
@@ -141,17 +143,25 @@ public class SailingBadPlugin extends Plugin
 		{
 			totalHomeX = total.getOriginalX();
 			totalHomeY = total.getOriginalY();
+			totalHomeWidth = total.getOriginalWidth();
+			totalHomeHeight = total.getOriginalHeight();
 			totalMoved = true;
 		}
 
-		// Sailing pushes the total level tile onto a row of its own. Dropping it
-		// into the gap Sailing leaves behind closes the grid back up to 8 rows.
+		// Sailing pushes the total level onto a row of its own, as a bar spanning
+		// all three columns. Taking the Sailing tile's geometry wholesale puts it
+		// back in the gap Sailing leaves behind, sized like the tile it replaces
+		// rather than as a full-width bar that would overflow the column.
 		if (total.getOriginalX() != sailing.getOriginalX()
-			|| total.getOriginalY() != sailing.getOriginalY())
+			|| total.getOriginalY() != sailing.getOriginalY()
+			|| total.getOriginalWidth() != sailing.getOriginalWidth()
+			|| total.getOriginalHeight() != sailing.getOriginalHeight())
 		{
 			total.setOriginalX(sailing.getOriginalX());
 			total.setOriginalY(sailing.getOriginalY());
-			total.revalidate();
+			total.setOriginalWidth(sailing.getOriginalWidth());
+			total.setOriginalHeight(sailing.getOriginalHeight());
+			relayout(total);
 		}
 	}
 
@@ -161,10 +171,36 @@ public class SailingBadPlugin extends Plugin
 		{
 			total.setOriginalX(totalHomeX);
 			total.setOriginalY(totalHomeY);
-			total.revalidate();
+			total.setOriginalWidth(totalHomeWidth);
+			total.setOriginalHeight(totalHomeHeight);
+			relayout(total);
 		}
 
 		totalMoved = false;
+	}
+
+	/**
+	 * Revalidates a widget and its children. The background sprites and the label
+	 * inside the total level tile are sized against their parent, so resizing the
+	 * tile alone leaves them laid out for the width it used to have.
+	 */
+	private static void relayout(Widget widget)
+	{
+		widget.revalidate();
+
+		Widget[] children = widget.getChildren();
+		if (children == null)
+		{
+			return;
+		}
+
+		for (Widget child : children)
+		{
+			if (child != null)
+			{
+				child.revalidate();
+			}
+		}
 	}
 
 	private void applyTotalLevel()
@@ -177,10 +213,25 @@ public class SailingBadPlugin extends Plugin
 
 		String text = totalText.getText();
 		String updated = replaceLastNumber(text, totalLevel());
-		if (updated != null && !updated.equals(text))
+		if (updated == null)
+		{
+			return;
+		}
+
+		if (tileIsNarrowed())
+		{
+			updated = stackLabelAboveNumber(updated);
+		}
+
+		if (!updated.equals(text))
 		{
 			totalText.setText(updated);
 		}
+	}
+
+	private boolean tileIsNarrowed()
+	{
+		return config.hideSailing() && config.moveTotalLevel();
 	}
 
 	private void applyTooltip()
@@ -270,6 +321,8 @@ public class SailingBadPlugin extends Plugin
 	{
 		totalHomeX = -1;
 		totalHomeY = -1;
+		totalHomeWidth = -1;
+		totalHomeHeight = -1;
 		totalMoved = false;
 		sailingHidden = false;
 	}
@@ -280,6 +333,57 @@ public class SailingBadPlugin extends Plugin
 	 * to replace, which is how a tab that a script has not filled in yet reads.
 	 */
 	static String replaceLastNumber(String text, long value)
+	{
+		int[] bounds = lastNumberBounds(text);
+		if (bounds == null)
+		{
+			return null;
+		}
+
+		int start = bounds[0];
+		int end = bounds[1];
+		String replacement = text.substring(start, end).indexOf(',') >= 0
+			? String.format(Locale.ENGLISH, "%,d", value)
+			: Long.toString(value);
+
+		return text.substring(0, start) + replacement + text.substring(end);
+	}
+
+	/**
+	 * Breaks {@code text} so the number sits on a line of its own. The full-width
+	 * bar writes the label and the level side by side, which does not fit once the
+	 * tile is one column wide. Text already split over two lines is left alone.
+	 */
+	static String stackLabelAboveNumber(String text)
+	{
+		int[] bounds = lastNumberBounds(text);
+		if (bounds == null)
+		{
+			return text;
+		}
+
+		int start = bounds[0];
+		int gap = start;
+		while (gap > 0 && Character.isWhitespace(text.charAt(gap - 1)))
+		{
+			gap--;
+		}
+
+		if (gap == start || gap == 0)
+		{
+			// Either nothing separates the label from the number, or there is no
+			// label at all. A <br> already ends in '>', so this covers that too.
+			return text;
+		}
+
+		return text.substring(0, gap) + ROW_SEPARATOR + text.substring(start);
+	}
+
+	/**
+	 * Locates the last number in {@code text} as {@code {start, end}}, or null when
+	 * there is none. Digits inside markup do not count.
+	 */
+	private static int[] lastNumberBounds(String text)
 	{
 		if (text == null)
 		{
@@ -307,7 +411,7 @@ public class SailingBadPlugin extends Plugin
 				continue;
 			}
 
-			if (c >= '0' && c <= '9')
+			if (isDigit(c))
 			{
 				int from = i;
 				while (i < text.length() && (isDigit(text.charAt(i)) || text.charAt(i) == ','))
@@ -327,16 +431,7 @@ public class SailingBadPlugin extends Plugin
 			}
 		}
 
-		if (start < 0)
-		{
-			return null;
-		}
-
-		String replacement = text.substring(start, end).indexOf(',') >= 0
-			? String.format(Locale.ENGLISH, "%,d", value)
-			: Long.toString(value);
-
-		return text.substring(0, start) + replacement + text.substring(end);
+		return start < 0 ? null : new int[]{start, end};
 	}
 
 	private static boolean isDigit(char c)

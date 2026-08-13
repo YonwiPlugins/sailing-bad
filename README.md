@@ -5,7 +5,7 @@ A RuneLite Plugin Hub plugin that hides Sailing from the Old School RuneScape Sk
 ## Features
 
 - Hides the Sailing tile from the Skills tab.
-- Moves the Total level tile into the slot Sailing leaves behind, closing the grid back up to eight rows.
+- Moves the Total level into the slot Sailing leaves behind, closing the grid back up to eight rows. Sailing turned it into a full-width bar on a row of its own, so it is resized back to a single tile and its label is stacked above the number to fit.
 - Subtracts Sailing from the total level shown on the Total level tile.
 - Subtracts Sailing from the total level and total XP shown in the Total level tooltip.
 - Each part can be turned off on its own in the plugin settings.

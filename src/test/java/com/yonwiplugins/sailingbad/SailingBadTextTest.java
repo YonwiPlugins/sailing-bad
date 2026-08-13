@@ -58,6 +58,44 @@ public class SailingBadTextTest
 	}
 
 	@Test
+	public void stacksTheLevelUnderTheLabelForANarrowTile()
+	{
+		assertEquals(
+			"Total level:<br>2277",
+			SailingBadPlugin.stackLabelAboveNumber("Total level: 2277"));
+	}
+
+	@Test
+	public void stackingKeepsMarkupIntact()
+	{
+		assertEquals(
+			"<col=ff981f>Total level:</col><br>2277",
+			SailingBadPlugin.stackLabelAboveNumber("<col=ff981f>Total level:</col> 2277"));
+	}
+
+	@Test
+	public void doesNotStackTextThatIsAlreadySplit()
+	{
+		assertEquals(
+			"Total level:<br>2277",
+			SailingBadPlugin.stackLabelAboveNumber("Total level:<br>2277"));
+	}
+
+	@Test
+	public void stackingIsIdempotent()
+	{
+		String once = SailingBadPlugin.stackLabelAboveNumber("Total level: 2277");
+		assertEquals(once, SailingBadPlugin.stackLabelAboveNumber(once));
+	}
+
+	@Test
+	public void leavesTextWithNoLabelAlone()
+	{
+		assertEquals("2277", SailingBadPlugin.stackLabelAboveNumber("2277"));
+		assertEquals("Total level:", SailingBadPlugin.stackLabelAboveNumber("Total level:"));
+	}
+
+	@Test
 	public void correctsBothTooltipRows()
 	{
 		assertEquals(
