@@ -32,10 +32,21 @@ public interface SailingBadConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "removeBottomGap",
+		name = "Close the bottom gap",
+		description = "Grows the tiles back into the row Sailing added, so the tab does not end on empty space",
+		position = 2
+	)
+	default boolean removeBottomGap()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "fixTotalLevel",
 		name = "Total level without Sailing",
 		description = "Takes Sailing back out of the total level and total XP that the skills tab shows",
-		position = 2
+		position = 3
 	)
 	default boolean fixTotalLevel()
 	{

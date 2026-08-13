@@ -27,6 +27,11 @@ import net.runelite.client.util.Text;
 public class SailingBadPlugin extends Plugin
 {
 	private static final String ROW_SEPARATOR = "<br>";
+	// The tiles are laid out column by column, eight rows to a column, so the
+	// constants run Attack..Construction, Hitpoints..Hunter, Mining..Sailing.
+	private static final int FIRST_TILE = InterfaceID.Stats.ATTACK;
+	private static final int LAST_TILE = InterfaceID.Stats.SAILING;
+	private static final int ROW_COUNT = 8;
 	private static final String TOTAL_LEVEL_LABEL = "total level";
 	private static final String TOTAL_XP_LABEL = "total xp";
 	private static final int TOOLTIP_LABEL_CHILD_INDEX = 2;
@@ -43,6 +48,9 @@ public class SailingBadPlugin extends Plugin
 
 	// The bar the total level sits in before we shrink it into the Sailing slot.
 	private Layout totalHome;
+	// The y of each row, and the tile height, as Sailing leaves them.
+	private int[] rowHomeY;
+	private int tileHomeHeight;
 	private boolean sailingHidden;
 
 	@Provides
@@ -83,23 +91,32 @@ public class SailingBadPlugin extends Plugin
 			return;
 		}
 
-		// A client script rebuilds the skills tab whenever a level changes or the
-		// tab is reopened, so every override has to be reapplied each frame. Each
-		// one writes an absolute value rather than a delta so that reapplying an
-		// override that is already in place is a no-op.
-		applySkillTile();
-		applyTotalLevel();
-		applyTooltip();
-	}
-
-	private void applySkillTile()
-	{
 		Widget sailing = client.getWidget(InterfaceID.Stats.SAILING);
-		if (sailing == null)
+		Widget total = client.getWidget(InterfaceID.Stats.TOTAL);
+		if (sailing == null || total == null)
 		{
 			return;
 		}
 
+		// Read the untouched layout before anything below writes to it.
+		if (totalHome == null)
+		{
+			totalHome = Layout.of(total);
+		}
+
+		// A client script rebuilds the skills tab whenever a level changes or the
+		// tab is reopened, so every override has to be reapplied each frame. Each
+		// one writes an absolute value rather than a delta so that reapplying an
+		// override that is already in place is a no-op.
+		applySailingVisibility(sailing);
+		applyRowSpacing();
+		applyTotalTilePosition(sailing, total);
+		applyTotalLevel();
+		applyTooltip();
+	}
+
+	private void applySailingVisibility(Widget sailing)
+	{
 		if (config.hideSailing())
 		{
 			if (!sailing.isSelfHidden())
@@ -113,39 +130,111 @@ public class SailingBadPlugin extends Plugin
 			sailing.setHidden(false);
 			sailingHidden = false;
 		}
-
-		applyTotalTilePosition(sailing);
 	}
 
-	private void applyTotalTilePosition(Widget sailing)
+	private void applyTotalTilePosition(Widget sailing, Widget total)
 	{
-		Widget total = client.getWidget(InterfaceID.Stats.TOTAL);
-		if (total == null)
-		{
-			return;
-		}
-
 		if (!config.hideSailing() || !config.moveTotalLevel())
 		{
 			restoreTotalTilePosition(total);
 			return;
 		}
 
-		if (totalHome == null)
-		{
-			totalHome = Layout.of(total);
-		}
-
 		// Sailing pushes the total level onto a row of its own, as a bar spanning
 		// all three columns. Taking the Sailing tile's whole layout puts it back in
 		// the gap Sailing leaves behind, shaped like the tile it replaces rather
-		// than as a full-width bar that would overflow the column.
+		// than as a full-width bar that would overflow the column. Row spacing has
+		// already run, so this picks up the Sailing slot's final geometry.
 		Layout slot = Layout.of(sailing);
 		if (!slot.matches(total))
 		{
 			slot.applyTo(total);
 			relayout(total);
 		}
+	}
+
+	private void applyRowSpacing()
+	{
+		if (rowHomeY == null && !captureRowHome())
+		{
+			return;
+		}
+
+		if (!tileIsNarrowed() || !config.removeBottomGap())
+		{
+			restoreRowSpacing();
+			return;
+		}
+
+		// Sailing did not make the panel taller, it made the tiles shorter to fit a
+		// ninth row into the same space. Dropping back to eight rows therefore
+		// leaves a row of dead space at the bottom unless the tiles grow back into
+		// it. The nine rows span from the top tile to the foot of the total level
+		// bar, so sharing that span between eight rows restores the old height.
+		int top = rowHomeY[0];
+		int span = totalHome.y + totalHome.height - top;
+		int pitch = span / ROW_COUNT;
+		int height = pitch - (rowHomeY[1] - rowHomeY[0] - tileHomeHeight);
+		if (pitch <= 0 || height <= 0)
+		{
+			return;
+		}
+
+		for (int id = FIRST_TILE; id <= LAST_TILE; id++)
+		{
+			setTileRow(id, top + rowOf(id) * pitch, height);
+		}
+	}
+
+	private void restoreRowSpacing()
+	{
+		if (rowHomeY == null)
+		{
+			return;
+		}
+
+		for (int id = FIRST_TILE; id <= LAST_TILE; id++)
+		{
+			setTileRow(id, rowHomeY[rowOf(id)], tileHomeHeight);
+		}
+	}
+
+	private void setTileRow(int id, int y, int height)
+	{
+		Widget tile = client.getWidget(id);
+		if (tile == null || (tile.getOriginalY() == y && tile.getOriginalHeight() == height))
+		{
+			return;
+		}
+
+		tile.setOriginalY(y);
+		tile.setOriginalHeight(height);
+		relayout(tile);
+	}
+
+	private boolean captureRowHome()
+	{
+		int[] home = new int[ROW_COUNT];
+		for (int row = 0; row < ROW_COUNT; row++)
+		{
+			// The first column runs top to bottom, one tile per row.
+			Widget tile = client.getWidget(FIRST_TILE + row);
+			if (tile == null)
+			{
+				return false;
+			}
+
+			home[row] = tile.getOriginalY();
+			tileHomeHeight = tile.getOriginalHeight();
+		}
+
+		rowHomeY = home;
+		return true;
+	}
+
+	private static int rowOf(int id)
+	{
+		return (id - FIRST_TILE) % ROW_COUNT;
 	}
 
 	private void restoreTotalTilePosition(Widget total)
@@ -276,6 +365,8 @@ public class SailingBadPlugin extends Plugin
 				sailing.setHidden(false);
 			}
 
+			restoreRowSpacing();
+
 			Widget total = client.getWidget(InterfaceID.Stats.TOTAL);
 			if (total != null)
 			{
@@ -299,6 +390,8 @@ public class SailingBadPlugin extends Plugin
 	private void forgetLayout()
 	{
 		totalHome = null;
+		rowHomeY = null;
+		tileHomeHeight = 0;
 		sailingHidden = false;
 	}
 
