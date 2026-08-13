@@ -215,6 +215,11 @@ public class SailingBadPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * The total level to display. Falls back to the real total when the setting is
+	 * off, which is what makes turning it off restore the tab straight away rather
+	 * than leaving our last figure up until a script next redraws it.
+	 */
 	private int totalLevel()
 	{
 		int total = client.getTotalLevel();
