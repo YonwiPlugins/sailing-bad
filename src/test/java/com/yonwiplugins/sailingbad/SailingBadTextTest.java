@@ -108,6 +108,21 @@ public class SailingBadTextTest
 	}
 
 	@Test
+	public void leavesTheFreeTotalLevelRowAlone()
+	{
+		// The total level tooltip is built by script 396 from "Total level:",
+		// "Total XP:" and "Free Total Level:". The free total counts only
+		// free-to-play skills, so Sailing was never in it to take out.
+		assertEquals(
+			"2277<br>299,791,913<br>1500",
+			SailingBadPlugin.correctTooltipValues(
+				"Total level:<br>Total XP:<br>Free Total Level:",
+				"2376<br>313,791,913<br>1500",
+				2277,
+				299_791_913L));
+	}
+
+	@Test
 	public void leavesTooltipsForOtherSkillsAlone()
 	{
 		assertNull(SailingBadPlugin.correctTooltipValues(
