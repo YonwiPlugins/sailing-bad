@@ -1,11 +1,22 @@
 package com.yonwiplugins.sailingbad;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNull;
 import org.junit.Test;
 
 public class SailingBadTextTest
 {
+	@Test
+	public void usesTheMeasuredOriginalTotalTileMask()
+	{
+		assertArrayEquals(new int[]{2, 5, 58, 22, 0}, SailingBadPlugin.panelLayer(0, 62, 32));
+		assertArrayEquals(new int[]{4, 4, 54, 1, 0}, SailingBadPlugin.panelLayer(1, 62, 32));
+		assertArrayEquals(new int[]{5, 2, 52, 2, 0}, SailingBadPlugin.panelLayer(2, 62, 32));
+		assertArrayEquals(new int[]{4, 27, 54, 1, 0}, SailingBadPlugin.panelLayer(3, 62, 32));
+		assertArrayEquals(new int[]{5, 28, 52, 2, 0}, SailingBadPlugin.panelLayer(4, 62, 32));
+	}
+
 	@Test
 	public void replacesTheTotalLevelOnTheTile()
 	{

@@ -1,10 +1,13 @@
 package com.yonwiplugins.sailingbad;
 
 import com.google.inject.Provides;
+import java.util.IdentityHashMap;
 import java.util.Locale;
+import java.util.Map;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.FontID;
 import net.runelite.api.GameState;
 import net.runelite.api.Skill;
 import net.runelite.api.events.BeforeRender;
@@ -34,7 +37,9 @@ public class SailingBadPlugin extends Plugin
 	private static final int ROW_COUNT = 8;
 	private static final int TYPE_RECTANGLE = 3;
 	private static final int TYPE_TEXT = 4;
+	private static final int TYPE_GRAPHIC = 5;
 	private static final int PANEL_COLOUR = 0x000000;
+	private static final int PANEL_LAYER_COUNT = 5;
 	private static final String TOTAL_LEVEL_LABEL = "total level";
 	private static final String TOTAL_XP_LABEL = "total xp";
 	private static final int TOOLTIP_LABEL_CHILD_INDEX = 2;
@@ -56,6 +61,8 @@ public class SailingBadPlugin extends Plugin
 	private int[] rowHomeHeight;
 	// The total level bar's own children, before we repaint them as a tile.
 	private ChildState[] totalSkinHome;
+	private final Map<Widget, Boolean> sailingContentHome = new IdentityHashMap<>();
+	private int totalTextHomeFontId = -1;
 	private boolean sailingHidden;
 
 	@Provides
@@ -124,17 +131,74 @@ public class SailingBadPlugin extends Plugin
 	{
 		if (config.hideSailing())
 		{
-			if (!sailing.isSelfHidden())
+			// When Total occupies this slot, Sailing must remain rendered underneath:
+			// its widget owns the genuine bevel around the tile. The inset Total panel
+			// covers Sailing's icon and levels while leaving that frame visible.
+			boolean hideTile = !config.moveTotalLevel();
+			if (hideTile)
 			{
-				sailing.setHidden(true);
-				sailingHidden = true;
+				restoreSailingContents();
 			}
+			else
+			{
+				hideSailingContents(sailing);
+			}
+
+			if (sailing.isSelfHidden() != hideTile)
+			{
+				sailing.setHidden(hideTile);
+			}
+
+			sailingHidden = hideTile;
 		}
-		else if (sailingHidden)
+		else
 		{
-			sailing.setHidden(false);
+			restoreSailingContents();
+			if (sailing.isSelfHidden())
+			{
+				sailing.setHidden(false);
+			}
+
 			sailingHidden = false;
 		}
+	}
+
+	private void hideSailingContents(Widget sailing)
+	{
+		Widget[] children = sailing.getChildren();
+		if (children == null)
+		{
+			return;
+		}
+
+		int tileWidth = sailing.getWidth();
+		int tileHeight = sailing.getHeight();
+		for (Widget child : children)
+		{
+			if (child == null)
+			{
+				continue;
+			}
+
+			boolean isText = child.getType() == TYPE_TEXT;
+			boolean isSmallGraphic = child.getType() == TYPE_GRAPHIC
+				&& child.getWidth() < tileWidth - 4
+				&& child.getHeight() < tileHeight - 4;
+			if (isText || isSmallGraphic)
+			{
+				sailingContentHome.putIfAbsent(child, child.isSelfHidden());
+				child.setHidden(true);
+			}
+		}
+	}
+
+	private void restoreSailingContents()
+	{
+		for (Map.Entry<Widget, Boolean> entry : sailingContentHome.entrySet())
+		{
+			entry.getKey().setHidden(entry.getValue());
+		}
+		sailingContentHome.clear();
 	}
 
 	private void applyTotalTilePosition(Widget sailing, Widget total)
@@ -161,11 +225,8 @@ public class SailingBadPlugin extends Plugin
 	}
 
 	/**
-	 * Repaints the total level bar's background as a tile-shaped panel. The bar is
-	 * drawn as a three part pill: a rounded left cap, a repeating middle and a
-	 * rounded right cap, all 36x19 sprites. Those are the wrong shape for a 62x32
-	 * tile and the caps would overlap in it, so the first of them becomes a plain
-	 * filled panel covering the tile and the rest are hidden.
+	 * Reuses Sailing's complete genuine tile frame and replaces only its grey
+	 * interior with a chamfered black fill. Total text renders above it.
 	 */
 	private void applyTotalTileSkin(Widget total)
 	{
@@ -184,7 +245,7 @@ public class SailingBadPlugin extends Plugin
 			}
 		}
 
-		boolean painted = false;
+		int layer = 0;
 		for (Widget child : children)
 		{
 			if (child == null || child.getType() == TYPE_TEXT)
@@ -192,44 +253,63 @@ public class SailingBadPlugin extends Plugin
 				continue;
 			}
 
-			if (painted)
+			if (layer < PANEL_LAYER_COUNT)
 			{
-				if (!child.isSelfHidden())
-				{
-					child.setHidden(true);
-				}
-
-				continue;
+				int[] geometry = panelLayer(layer, total.getOriginalWidth(), total.getOriginalHeight());
+				paintRectangle(child, geometry);
+				layer++;
 			}
-
-			paintPanel(child, total);
-			painted = true;
+			else if (!child.isSelfHidden())
+			{
+				child.setHidden(true);
+			}
 		}
 	}
 
-	private static void paintPanel(Widget panel, Widget tile)
+	/**
+	 * The five horizontal bands measured from the original 62x32 Total tile. At
+	 * 12x capture scale they are 52x2, 54x1, 58x22, 54x1 and 52x2 logical pixels.
+	 * This leaves the genuine skill-tile bevel exposed around the exact corner steps.
+	 */
+	static int[] panelLayer(int layer, int width, int height)
 	{
-		int width = tile.getOriginalWidth();
-		int height = tile.getOriginalHeight();
-		if (panel.getType() == TYPE_RECTANGLE
-			&& panel.getOriginalWidth() == width
-			&& panel.getOriginalHeight() == height)
+			switch (layer)
 		{
-			return;
+			case 0:
+				return new int[]{2, 5, Math.max(1, width - 4), Math.max(1, height - 10), PANEL_COLOUR};
+			case 1:
+				return new int[]{4, 4, Math.max(1, width - 8), 1, PANEL_COLOUR};
+			case 2:
+				return new int[]{5, 2, Math.max(1, width - 10), 2, PANEL_COLOUR};
+			case 3:
+				return new int[]{4, Math.max(0, height - 5), Math.max(1, width - 8), 1, PANEL_COLOUR};
+			case 4:
+				return new int[]{5, Math.max(0, height - 4), Math.max(1, width - 10), 2, PANEL_COLOUR};
+			default:
+				throw new IllegalArgumentException("Unknown panel layer " + layer);
 		}
+	}
+
+	private static void paintRectangle(Widget panel, int[] geometry)
+	{
+		int x = geometry[0];
+		int y = geometry[1];
+		int width = geometry[2];
+		int height = geometry[3];
+		int colour = geometry[4];
 
 		panel.setType(TYPE_RECTANGLE);
 		panel.setFilled(true);
 		panel.setSpriteId(-1);
-		panel.setTextColor(PANEL_COLOUR);
+		panel.setTextColor(colour);
 		panel.setOpacity(0);
 		panel.setHidden(false);
 		panel.setXPositionMode(0);
 		panel.setYPositionMode(0);
 		panel.setWidthMode(0);
 		panel.setHeightMode(0);
-		panel.setOriginalX(0);
-		panel.setOriginalY(0);
+		panel.setOriginalX(x);
+		panel.setOriginalY(y);
 		panel.setOriginalWidth(width);
 		panel.setOriginalHeight(height);
 		panel.revalidate();
@@ -358,8 +438,7 @@ public class SailingBadPlugin extends Plugin
 	}
 
 	/**
-	 * The properties {@link #paintPanel} overwrites, so the bar can be handed back
-	 * as it was found.
+	 * The bar-child properties retained so it can be handed back as it was found.
 	 */
 	private static final class ChildState
 	{
@@ -442,6 +521,16 @@ public class SailingBadPlugin extends Plugin
 		if (tileIsNarrowed())
 		{
 			updated = stackLabelAboveNumber(updated);
+			if (totalTextHomeFontId < 0)
+			{
+				totalTextHomeFontId = totalText.getFontId();
+			}
+			totalText.setFontId(FontID.PLAIN_11);
+		}
+		else if (totalTextHomeFontId >= 0)
+		{
+			totalText.setFontId(totalTextHomeFontId);
+			totalTextHomeFontId = -1;
 		}
 
 		if (!updated.equals(text))
@@ -513,6 +602,7 @@ public class SailingBadPlugin extends Plugin
 		if (client.getGameState() == GameState.LOGGED_IN)
 		{
 			Widget sailing = client.getWidget(InterfaceID.Stats.SAILING);
+			restoreSailingContents();
 			if (sailing != null && sailingHidden)
 			{
 				sailing.setHidden(false);
@@ -529,6 +619,12 @@ public class SailingBadPlugin extends Plugin
 			Widget totalText = client.getWidget(InterfaceID.Stats.TOTAL_TEXT6);
 			if (totalText != null)
 			{
+				if (totalTextHomeFontId >= 0)
+				{
+					totalText.setFontId(totalTextHomeFontId);
+					totalTextHomeFontId = -1;
+				}
+
 				String updated = replaceLastNumber(totalText.getText(), client.getTotalLevel());
 				if (updated != null)
 				{
@@ -546,6 +642,8 @@ public class SailingBadPlugin extends Plugin
 		rowHomeY = null;
 		rowHomeHeight = null;
 		totalSkinHome = null;
+		sailingContentHome.clear();
+		totalTextHomeFontId = -1;
 		sailingHidden = false;
 	}
 
