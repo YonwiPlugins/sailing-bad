@@ -5,7 +5,10 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import java.io.IOException;
 import net.runelite.api.FontID;
+import okhttp3.Request;
+import okio.Buffer;
 import org.junit.Test;
 
 public class SailingBadTextTest
@@ -43,17 +46,40 @@ public class SailingBadTextTest
 	}
 
 	@Test
-	public void buildsTheHiscoresJoinUrlWithTheCurrentCharacter()
+	public void buildsTheHiscoresResultUrlWithTheCurrentCharacter()
 	{
 		assertEquals(
-			"https://2277.telfardo.com/join?username=Yonwi%20OSRS",
-			SailingBadPanel.buildHiscoresUrl("Yonwi OSRS"));
+			"https://2277.telfardo.com/?player=Yonwi%20OSRS#player-result",
+			SailingBadPanel.buildResultUrl("Yonwi OSRS"));
 	}
 
 	@Test
-	public void buildsAPlainJoinUrlWhenLoggedOut()
+	public void buildsTheHiscoresOptInRequest() throws IOException
 	{
-		assertEquals("https://2277.telfardo.com/join", SailingBadPanel.buildHiscoresUrl(null));
+		Request request = SailingBadPanel.buildOptInRequest("Yonwi OSRS");
+		Buffer body = new Buffer();
+		request.body().writeTo(body);
+
+		assertEquals("POST", request.method());
+		assertEquals("https://2277.telfardo.com/api/hiscores", request.url().toString());
+		assertEquals("application/json; charset=utf-8", request.body().contentType().toString());
+		assertEquals("{\"player\":\"Yonwi OSRS\"}", body.readUtf8());
+	}
+
+	@Test
+	public void validatesPlayerNamesBeforeSubmitting()
+	{
+		assertTrue(SailingBadPanel.isValidPlayerName("Yonwi OSRS"));
+		assertTrue(SailingBadPanel.isValidPlayerName("Rune-Name"));
+		assertFalse(SailingBadPanel.isValidPlayerName("Rune_Name"));
+		assertFalse(SailingBadPanel.isValidPlayerName("1234567890123"));
+		assertFalse(SailingBadPanel.isValidPlayerName(null));
+	}
+
+	@Test
+	public void hiscoresOptInIsDisabledByDefault()
+	{
+		assertFalse(new SailingBadConfig() { }.enableHiscoresOptIn());
 	}
 
 	@Test

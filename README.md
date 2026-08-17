@@ -9,11 +9,13 @@ A RuneLite Plugin Hub plugin that hides Sailing from the Old School RuneScape Sk
 - Subtracts Sailing from the total level shown on the Total level tile.
 - Replaces the Sailing hover text with a readable Total level and Total XP tooltip, with Sailing removed from both values.
 - Uses one fixed, tested Total tile layout with no panel, position, or font adjustment controls.
-- Adds one **Add me to the hiscores** button that opens `https://2277.telfardo.com/join` with the current character name filled in.
+- Adds one **Add me to the HiScores** button. When the separate HiScores opt-in setting is enabled, clicking it submits the current character name to `https://2277.telfardo.com/api/hiscores` and opens the saved result.
 - Restores the native Skills interface immediately when the plugin or its layout options are turned off.
 - Each part can be turned off on its own in the plugin settings.
 
-This is a display-only plugin. It rewrites what the Skills tab draws and changes nothing that is sent to or stored by the game, so your real Sailing level, your real total level, and the hiscores are all untouched.
+The Skills-tab changes are display-only. They change nothing sent to or stored by the game, so your real Sailing level and real total level remain untouched.
+
+The community HiScores feature is separate, disabled by default, and requires two deliberate actions: enable **HiScores opt-in** in the plugin settings, then click **Add me to the HiScores** in the side panel. That sends the current character name and IP address to `2277.telfardo.com`, where the player is stored in the opted-in leaderboard. Ordinary website searches use GET and do not add a player.
 
 ## Development
 
