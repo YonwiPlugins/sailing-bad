@@ -201,13 +201,15 @@ public class SailingBadTextTest
 	}
 
 	@Test
-	public void identifiesOnlyTheSailingExperienceTooltip()
+	public void identifiesBothNativeSailingTooltipForms()
 	{
-		assertTrue(SailingBadPlugin.isSailingExperienceTooltip(
+		assertTrue(SailingBadPlugin.isSailingTooltip(
 			"<col=ff981f>Sailing XP:</col><br>Next level at:<br>Remaining XP:"));
-		assertFalse(SailingBadPlugin.isSailingExperienceTooltip("Total XP:"));
-		assertFalse(SailingBadPlugin.isSailingExperienceTooltip("Sailing:<br>XP:"));
-		assertFalse(SailingBadPlugin.isSailingExperienceTooltip(null));
+		assertTrue(SailingBadPlugin.isSailingTooltip("<col=ff981f>Sailing:</col>"));
+		assertTrue(SailingBadPlugin.isSailingTooltip("Sailing: Members Only"));
+		assertFalse(SailingBadPlugin.isSailingTooltip("Total XP:"));
+		assertFalse(SailingBadPlugin.isSailingTooltip("Sailing guide:"));
+		assertFalse(SailingBadPlugin.isSailingTooltip(null));
 	}
 
 	@Test
