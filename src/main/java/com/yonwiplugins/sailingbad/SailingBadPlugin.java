@@ -50,6 +50,7 @@ public class SailingBadPlugin extends Plugin
 	private static final int BOTTOM_PANEL_PADDING = 5;
 	private static final String TOTAL_LEVEL_LABEL = "total level";
 	private static final String TOTAL_XP_LABEL = "total xp";
+	private static final String SAILING_LABEL = "sailing";
 	private static final String SAILING_XP_LABEL = "sailing xp";
 	private static final int TOOLTIP_BUILD_SCRIPT = 2344;
 	static final int TOOLTIP_FONT_ID = FontID.PLAIN_12;
@@ -696,7 +697,7 @@ public class SailingBadPlugin extends Plugin
 		}
 
 		String labelText = labels.getText();
-		if (tileIsNarrowed() && isSailingExperienceTooltip(labelText))
+		if (tileIsNarrowed() && isSailingTooltip(labelText))
 		{
 			// Sailing remains underneath Total so its genuine stone shell can render.
 			// Its mouse listener therefore opens a Sailing tooltip first. Rebuilding
@@ -1069,7 +1070,7 @@ public class SailingBadPlugin extends Plugin
 		return changed ? String.join(ROW_SEPARATOR, valueRows) : null;
 	}
 
-	static boolean isSailingExperienceTooltip(String labels)
+	static boolean isSailingTooltip(String labels)
 	{
 		if (labels == null)
 		{
@@ -1079,6 +1080,9 @@ public class SailingBadPlugin extends Plugin
 		int rowEnd = labels.indexOf(ROW_SEPARATOR);
 		String firstRow = rowEnd < 0 ? labels : labels.substring(0, rowEnd);
 		String normalized = Text.removeTags(firstRow).trim().toLowerCase(Locale.ENGLISH);
-		return normalized.startsWith(SAILING_XP_LABEL);
+		return normalized.equals(SAILING_LABEL)
+			|| normalized.startsWith(SAILING_LABEL + ":")
+			|| normalized.equals(SAILING_XP_LABEL)
+			|| normalized.startsWith(SAILING_XP_LABEL + ":");
 	}
 }

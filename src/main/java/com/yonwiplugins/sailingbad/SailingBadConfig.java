@@ -52,4 +52,16 @@ public interface SailingBadConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "enableHiscoresOptIn",
+		name = "Enable HiScores opt-in",
+		description = "Allows the side-panel button to submit your current character name to 2277.telfardo.com",
+		warning = "This feature submits your character name and IP address to a 3rd-party server not controlled or verified by RuneLite developers",
+		position = 4
+	)
+	default boolean enableHiscoresOptIn()
+	{
+		return false;
+	}
 }
