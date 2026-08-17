@@ -1,6 +1,11 @@
 package com.yonwiplugins.sailingbad;
 
 import com.google.inject.Provides;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -19,6 +24,8 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.Text;
 
 @PluginDescriptor(
@@ -40,8 +47,12 @@ public class SailingBadPlugin extends Plugin
 	private static final int TYPE_GRAPHIC = 5;
 	private static final int PANEL_COLOUR = 0x000000;
 	private static final int PANEL_LAYER_COUNT = 5;
+	private static final int BOTTOM_PANEL_PADDING = 5;
 	private static final String TOTAL_LEVEL_LABEL = "total level";
 	private static final String TOTAL_XP_LABEL = "total xp";
+	private static final String SAILING_XP_LABEL = "sailing xp";
+	private static final int TOOLTIP_BUILD_SCRIPT = 2344;
+	static final int TOOLTIP_FONT_ID = FontID.PLAIN_12;
 	private static final int TOOLTIP_LABEL_CHILD_INDEX = 2;
 	private static final int TOOLTIP_VALUE_CHILD_INDEX = 3;
 
@@ -54,6 +65,9 @@ public class SailingBadPlugin extends Plugin
 	@Inject
 	private SailingBadConfig config;
 
+	@Inject
+	private ClientToolbar clientToolbar;
+
 	// The bar the total level sits in before we shrink it into the Sailing slot.
 	private Layout totalHome;
 	// The y and height of each row as Sailing leaves them.
@@ -62,8 +76,10 @@ public class SailingBadPlugin extends Plugin
 	// The total level bar's own children, before we repaint them as a tile.
 	private ChildState[] totalSkinHome;
 	private final Map<Widget, Boolean> sailingContentHome = new IdentityHashMap<>();
-	private int totalTextHomeFontId = -1;
+	private TextStyle totalTextHomeStyle;
 	private boolean sailingHidden;
+	private SailingBadPanel panel;
+	private NavigationButton navButton;
 
 	@Provides
 	SailingBadConfig provideConfig(ConfigManager configManager)
@@ -75,11 +91,26 @@ public class SailingBadPlugin extends Plugin
 	protected void startUp()
 	{
 		forgetLayout();
+		panel = injector.getInstance(SailingBadPanel.class);
+		navButton = NavigationButton.builder()
+			.tooltip("Sailing Bad")
+			.icon(createPanelIcon())
+			.priority(6)
+			.panel(panel)
+			.build();
+		clientToolbar.addNavigation(navButton);
 	}
 
 	@Override
 	protected void shutDown()
 	{
+		if (navButton != null)
+		{
+			clientToolbar.removeNavigation(navButton);
+			navButton = null;
+			panel = null;
+		}
+
 		clientThread.invokeLater(this::restore);
 	}
 
@@ -245,6 +276,17 @@ public class SailingBadPlugin extends Plugin
 			}
 		}
 
+		int width = total.getOriginalWidth();
+		int height = total.getOriginalHeight();
+		if (rowHomeHeight != null && rowHomeHeight.length == ROW_COUNT)
+		{
+			// Closing the old Total-bar gap grows the last layout row from 32 to
+			// 33 pixels. Sailing's genuine stone skin remains 32 pixels high, just
+			// like Construction and Hunter, so the inset must stop at that original
+			// edge instead of painting over its bottom bevel and corner joins.
+			height = skinHeight(height, rowHomeHeight[ROW_COUNT - 1]);
+		}
+
 		int layer = 0;
 		for (Widget child : children)
 		{
@@ -255,7 +297,7 @@ public class SailingBadPlugin extends Plugin
 
 			if (layer < PANEL_LAYER_COUNT)
 			{
-				int[] geometry = panelLayer(layer, total.getOriginalWidth(), total.getOriginalHeight());
+				int[] geometry = panelLayer(layer, width, height);
 				paintRectangle(child, geometry);
 				layer++;
 			}
@@ -266,28 +308,54 @@ public class SailingBadPlugin extends Plugin
 		}
 	}
 
+	static int skinHeight(int layoutHeight, int originalSkinHeight)
+	{
+		return originalSkinHeight > 0
+			? Math.min(layoutHeight, originalSkinHeight)
+			: layoutHeight;
+	}
+
 	/**
-	 * The five horizontal bands measured from the original 62x32 Total tile. At
-	 * 12x capture scale they are 52x2, 54x1, 58x22, 54x1 and 52x2 logical pixels.
-	 * This leaves the genuine skill-tile bevel exposed around the exact corner steps.
+	 * These five horizontal bands are the black inset measured from the original
+	 * 62x32 Total tile. They stop above the lower bevel deliberately: Sailing's
+	 * genuine shell supplies both colours in that bevel and the asymmetric joins
+	 * into the outer panel. Painting a flat highlight there loses the exact
+	 * two-step bottom corners.
 	 */
 	static int[] panelLayer(int layer, int width, int height)
 	{
-			switch (layer)
+		switch (layer)
 		{
 			case 0:
-				return new int[]{2, 5, Math.max(1, width - 4), Math.max(1, height - 10), PANEL_COLOUR};
+				return new int[]{2, 6, Math.max(1, width - 4), Math.max(1, height - 12), PANEL_COLOUR};
 			case 1:
-				return new int[]{4, 4, Math.max(1, width - 8), 1, PANEL_COLOUR};
+				return new int[]{4, 5, Math.max(1, width - 8), 1, PANEL_COLOUR};
 			case 2:
-				return new int[]{5, 2, Math.max(1, width - 10), 2, PANEL_COLOUR};
+				return new int[]{5, 3, Math.max(1, width - 10), 2, PANEL_COLOUR};
 			case 3:
-				return new int[]{4, Math.max(0, height - 5), Math.max(1, width - 8), 1, PANEL_COLOUR};
+				return new int[]{4, Math.max(0, height - 6), Math.max(1, width - 8), 1, PANEL_COLOUR};
 			case 4:
-				return new int[]{5, Math.max(0, height - 4), Math.max(1, width - 10), 2, PANEL_COLOUR};
+				return new int[]{5, Math.max(0, height - 5), Math.max(1, width - 10), 2, PANEL_COLOUR};
 			default:
 				throw new IllegalArgumentException("Unknown panel layer " + layer);
 		}
+	}
+
+	private static BufferedImage createPanelIcon()
+	{
+		BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = icon.createGraphics();
+		graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+		graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
+		graphics.setColor(new Color(0x443B32));
+		graphics.fillRect(0, 0, 16, 16);
+		graphics.setColor(Color.BLACK);
+		graphics.fillRect(2, 2, 12, 12);
+		graphics.setColor(Color.YELLOW);
+		graphics.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+		graphics.drawString("S", 4, 12);
+		graphics.dispose();
+		return icon;
 	}
 
 	private static void paintRectangle(Widget panel, int[] geometry)
@@ -353,10 +421,14 @@ public class SailingBadPlugin extends Plugin
 		// The tab is a fixed 190x261 panel: eight rows of tiles ending at y=243,
 		// then the total level bar occupying y=241 to 260. Moving that bar up into
 		// the Sailing slot frees its strip at the foot of the panel, and nothing
-		// reflows to cover it. Sharing the whole span between the eight remaining
-		// rows spreads that strip across them instead of leaving it dead.
+		// reflows to cover it. Share that space between the rows, but retain a
+		// five-pixel stone footer matching the black inset's five-pixel top pad.
+		// This also keeps the final row at its native 32-pixel height.
 		int top = rowHomeY[0];
-		int span = totalHome.y + totalHome.height - top;
+		int totalBottom = totalHome.y + totalHome.height;
+		Widget panel = client.getWidget(InterfaceID.Stats.UNIVERSE);
+		int panelHeight = panel == null ? totalBottom + 1 : panel.getOriginalHeight();
+		int span = contentBottom(panelHeight, totalBottom) - top;
 		if (span <= 0)
 		{
 			return;
@@ -369,6 +441,11 @@ public class SailingBadPlugin extends Plugin
 			int next = top + (int) ((long) (row + 1) * span / ROW_COUNT);
 			setTileRow(id, y, next - y);
 		}
+	}
+
+	static int contentBottom(int panelHeight, int totalBottom)
+	{
+		return Math.min(totalBottom, Math.max(0, panelHeight - BOTTOM_PANEL_PADDING));
 	}
 
 	private void restoreRowSpacing()
@@ -479,6 +556,42 @@ public class SailingBadPlugin extends Plugin
 		}
 	}
 
+	private static final class TextStyle
+	{
+		private final int fontId;
+		private final int lineHeight;
+		private final int xTextAlignment;
+		private final int yTextAlignment;
+		private final boolean textShadowed;
+		private final Layout layout;
+
+		private TextStyle(Widget widget)
+		{
+			fontId = widget.getFontId();
+			lineHeight = widget.getLineHeight();
+			xTextAlignment = widget.getXTextAlignment();
+			yTextAlignment = widget.getYTextAlignment();
+			textShadowed = widget.getTextShadowed();
+			layout = Layout.of(widget);
+		}
+
+		static TextStyle of(Widget widget)
+		{
+			return new TextStyle(widget);
+		}
+
+		void restore(Widget widget)
+		{
+			layout.applyTo(widget);
+			widget.setFontId(fontId);
+			widget.setLineHeight(lineHeight);
+			widget.setXTextAlignment(xTextAlignment);
+			widget.setYTextAlignment(yTextAlignment);
+			widget.setTextShadowed(textShadowed);
+			widget.revalidate();
+		}
+	}
+
 	/**
 	 * Revalidates a widget and its children. The background sprites and the label
 	 * inside the total level tile are sized against their parent, so resizing the
@@ -521,22 +634,39 @@ public class SailingBadPlugin extends Plugin
 		if (tileIsNarrowed())
 		{
 			updated = stackLabelAboveNumber(updated);
-			if (totalTextHomeFontId < 0)
+			if (totalTextHomeStyle == null)
 			{
-				totalTextHomeFontId = totalText.getFontId();
+				totalTextHomeStyle = TextStyle.of(totalText);
 			}
-			totalText.setFontId(FontID.PLAIN_11);
+			applyTotalTextStyle(totalText);
 		}
-		else if (totalTextHomeFontId >= 0)
+		else
 		{
-			totalText.setFontId(totalTextHomeFontId);
-			totalTextHomeFontId = -1;
+			updated = placeLabelBesideNumber(updated);
+			restoreTotalTextStyle(totalText);
 		}
 
 		if (!updated.equals(text))
 		{
 			totalText.setText(updated);
 		}
+	}
+
+	private void applyTotalTextStyle(Widget totalText)
+	{
+		TextStyle home = totalTextHomeStyle;
+		if (home == null)
+		{
+			return;
+		}
+
+		home.layout.applyTo(totalText);
+		totalText.setFontId(FontID.PLAIN_11);
+		totalText.setLineHeight(home.lineHeight);
+		totalText.setXTextAlignment(home.xTextAlignment);
+		totalText.setYTextAlignment(home.yTextAlignment);
+		totalText.setTextShadowed(home.textShadowed);
+		totalText.revalidate();
 	}
 
 	private boolean tileIsNarrowed()
@@ -565,8 +695,27 @@ public class SailingBadPlugin extends Plugin
 			return;
 		}
 
+		String labelText = labels.getText();
+		if (tileIsNarrowed() && isSailingExperienceTooltip(labelText))
+		{
+			// Sailing remains underneath Total so its genuine stone shell can render.
+			// Its mouse listener therefore opens a Sailing tooltip first. Rebuilding
+			// that tooltip through the same native script gives this replacement tile
+			// the correctly sized, one-row Total XP box. PLAIN_12 matches the readable
+			// native tooltip path instead of occasionally showing the tiny PLAIN_11 text.
+			client.runScript(
+				TOOLTIP_BUILD_SCRIPT,
+				InterfaceID.Stats.SAILING,
+				-1,
+				InterfaceID.Stats.TOOLTIP,
+				"Total XP:",
+				String.format(Locale.ENGLISH, "%,d", totalExperience()),
+				TOOLTIP_FONT_ID);
+			return;
+		}
+
 		String updated = correctTooltipValues(
-			labels.getText(),
+			labelText,
 			values.getText(),
 			totalLevel(),
 			totalExperience());
@@ -583,18 +732,28 @@ public class SailingBadPlugin extends Plugin
 	 */
 	private int totalLevel()
 	{
-		int total = client.getTotalLevel();
-		return config.fixTotalLevel()
-			? total - client.getRealSkillLevel(Skill.SAILING)
-			: total;
+		return totalWithoutSailing(
+			client.getTotalLevel(),
+			client.getRealSkillLevel(Skill.SAILING),
+			config.fixTotalLevel());
 	}
 
 	private long totalExperience()
 	{
-		long total = client.getOverallExperience();
-		return config.fixTotalLevel()
-			? total - client.getSkillExperience(Skill.SAILING)
-			: total;
+		return experienceWithoutSailing(
+			client.getOverallExperience(),
+			client.getSkillExperience(Skill.SAILING),
+			config.fixTotalLevel());
+	}
+
+	static int totalWithoutSailing(int totalLevel, int sailingLevel, boolean enabled)
+	{
+		return enabled ? totalLevel - sailingLevel : totalLevel;
+	}
+
+	static long experienceWithoutSailing(long totalExperience, long sailingExperience, boolean enabled)
+	{
+		return enabled ? totalExperience - sailingExperience : totalExperience;
 	}
 
 	private void restore()
@@ -619,17 +778,23 @@ public class SailingBadPlugin extends Plugin
 			Widget totalText = client.getWidget(InterfaceID.Stats.TOTAL_TEXT6);
 			if (totalText != null)
 			{
-				if (totalTextHomeFontId >= 0)
-				{
-					totalText.setFontId(totalTextHomeFontId);
-					totalTextHomeFontId = -1;
-				}
+				restoreTotalTextStyle(totalText);
 
-				String updated = replaceLastNumber(totalText.getText(), client.getTotalLevel());
+				String inlineText = placeLabelBesideNumber(totalText.getText());
+				String updated = replaceLastNumber(inlineText, client.getTotalLevel());
 				if (updated != null)
 				{
 					totalText.setText(updated);
 				}
+			}
+
+			// The plugin has been unregistered before this callback runs, so these
+			// native skill-change listeners can repaint the tab without our overrides.
+			// This repairs any client-script state that was rebuilt while the plugin
+			// was active and makes disabling it equivalent to reopening the interface.
+			for (Skill skill : Skill.values())
+			{
+				client.queueChangedSkill(skill);
 			}
 		}
 
@@ -643,8 +808,17 @@ public class SailingBadPlugin extends Plugin
 		rowHomeHeight = null;
 		totalSkinHome = null;
 		sailingContentHome.clear();
-		totalTextHomeFontId = -1;
+		totalTextHomeStyle = null;
 		sailingHidden = false;
+	}
+
+	private void restoreTotalTextStyle(Widget totalText)
+	{
+		if (totalTextHomeStyle != null)
+		{
+			totalTextHomeStyle.restore(totalText);
+			totalTextHomeStyle = null;
+		}
 	}
 
 	/**
@@ -697,6 +871,35 @@ public class SailingBadPlugin extends Plugin
 		}
 
 		return text.substring(0, gap) + ROW_SEPARATOR + text.substring(start);
+	}
+
+	/**
+	 * Returns the narrow tile's stacked label to the native full-width layout.
+	 * Only the final break immediately before the displayed number is changed,
+	 * so unrelated multi-line widget text and markup are left untouched.
+	 */
+	static String placeLabelBesideNumber(String text)
+	{
+		int[] bounds = lastNumberBounds(text);
+		if (bounds == null)
+		{
+			return text;
+		}
+
+		int numberStart = bounds[0];
+		int breakStart = text.lastIndexOf(ROW_SEPARATOR, numberStart);
+		if (breakStart < 0)
+		{
+			return text;
+		}
+
+		int breakEnd = breakStart + ROW_SEPARATOR.length();
+		if (!text.substring(breakEnd, numberStart).trim().isEmpty())
+		{
+			return text;
+		}
+
+		return text.substring(0, breakStart) + " " + text.substring(numberStart);
 	}
 
 	/**
@@ -864,5 +1067,18 @@ public class SailingBadPlugin extends Plugin
 		}
 
 		return changed ? String.join(ROW_SEPARATOR, valueRows) : null;
+	}
+
+	static boolean isSailingExperienceTooltip(String labels)
+	{
+		if (labels == null)
+		{
+			return false;
+		}
+
+		int rowEnd = labels.indexOf(ROW_SEPARATOR);
+		String firstRow = rowEnd < 0 ? labels : labels.substring(0, rowEnd);
+		String normalized = Text.removeTags(firstRow).trim().toLowerCase(Locale.ENGLISH);
+		return normalized.startsWith(SAILING_XP_LABEL);
 	}
 }
