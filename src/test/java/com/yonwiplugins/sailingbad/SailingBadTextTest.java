@@ -2,19 +2,58 @@ package com.yonwiplugins.sailingbad;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import net.runelite.api.FontID;
 import org.junit.Test;
 
 public class SailingBadTextTest
 {
 	@Test
-	public void usesTheMeasuredOriginalTotalTileMask()
+	public void keepsFivePixelsOfStoneBelowTheFinalRow()
 	{
-		assertArrayEquals(new int[]{2, 5, 58, 22, 0}, SailingBadPlugin.panelLayer(0, 62, 32));
-		assertArrayEquals(new int[]{4, 4, 54, 1, 0}, SailingBadPlugin.panelLayer(1, 62, 32));
-		assertArrayEquals(new int[]{5, 2, 52, 2, 0}, SailingBadPlugin.panelLayer(2, 62, 32));
-		assertArrayEquals(new int[]{4, 27, 54, 1, 0}, SailingBadPlugin.panelLayer(3, 62, 32));
-		assertArrayEquals(new int[]{5, 28, 52, 2, 0}, SailingBadPlugin.panelLayer(4, 62, 32));
+		int contentBottom = SailingBadPlugin.contentBottom(261, 260);
+		assertEquals(256, contentBottom);
+		assertEquals(5, 261 - contentBottom);
+	}
+
+	@Test
+	public void keepsTheBlackInsetInsideTheOriginalBottomRowSkin()
+	{
+		assertEquals(32, SailingBadPlugin.skinHeight(33, 32));
+		assertEquals(32, SailingBadPlugin.skinHeight(32, 32));
+		assertEquals(30, SailingBadPlugin.skinHeight(30, 32));
+	}
+
+	@Test
+	public void usesTheApprovedFixedTotalTileMask()
+	{
+		assertArrayEquals(new int[]{2, 6, 58, 20, 0}, SailingBadPlugin.panelLayer(0, 62, 32));
+		assertArrayEquals(new int[]{4, 5, 54, 1, 0}, SailingBadPlugin.panelLayer(1, 62, 32));
+		assertArrayEquals(new int[]{5, 3, 52, 2, 0}, SailingBadPlugin.panelLayer(2, 62, 32));
+		assertArrayEquals(new int[]{4, 26, 54, 1, 0}, SailingBadPlugin.panelLayer(3, 62, 32));
+		assertArrayEquals(new int[]{5, 27, 52, 2, 0}, SailingBadPlugin.panelLayer(4, 62, 32));
+	}
+
+	@Test
+	public void usesTheReadableRuneScapeFontForTheReplacementTooltip()
+	{
+		assertEquals(FontID.PLAIN_12, SailingBadPlugin.TOOLTIP_FONT_ID);
+	}
+
+	@Test
+	public void buildsTheHiscoresJoinUrlWithTheCurrentCharacter()
+	{
+		assertEquals(
+			"https://2277.telfardo.com/join?username=Yonwi%20OSRS",
+			SailingBadPanel.buildHiscoresUrl("Yonwi OSRS"));
+	}
+
+	@Test
+	public void buildsAPlainJoinUrlWhenLoggedOut()
+	{
+		assertEquals("https://2277.telfardo.com/join", SailingBadPanel.buildHiscoresUrl(null));
 	}
 
 	@Test
@@ -23,6 +62,24 @@ public class SailingBadTextTest
 		assertEquals(
 			"Total level:<br>2277",
 			SailingBadPlugin.replaceLastNumber("Total level:<br>2376", 2277));
+	}
+
+	@Test
+	public void subtractsSailingFromTheDisplayedTotalLevel()
+	{
+		assertEquals(2277, SailingBadPlugin.totalWithoutSailing(2376, 99, true));
+		assertEquals(2376, SailingBadPlugin.totalWithoutSailing(2376, 99, false));
+	}
+
+	@Test
+	public void subtractsSailingFromTheDisplayedTotalExperience()
+	{
+		assertEquals(
+			299_791_913L,
+			SailingBadPlugin.experienceWithoutSailing(313_791_913L, 14_000_000L, true));
+		assertEquals(
+			313_791_913L,
+			SailingBadPlugin.experienceWithoutSailing(313_791_913L, 14_000_000L, false));
 	}
 
 	@Test
@@ -100,6 +157,31 @@ public class SailingBadTextTest
 	}
 
 	@Test
+	public void restoresTheNativeSingleLineTextWhenDisabled()
+	{
+		assertEquals(
+			"Total level: 2376",
+			SailingBadPlugin.placeLabelBesideNumber("Total level:<br>2376"));
+	}
+
+	@Test
+	public void restoringSingleLineTextKeepsMarkupIntact()
+	{
+		assertEquals(
+			"<col=ff981f>Total level:</col> 2376",
+			SailingBadPlugin.placeLabelBesideNumber(
+				"<col=ff981f>Total level:</col><br>2376"));
+	}
+
+	@Test
+	public void restoringSingleLineTextIsIdempotent()
+	{
+		assertEquals(
+			"Total level: 2376",
+			SailingBadPlugin.placeLabelBesideNumber("Total level: 2376"));
+	}
+
+	@Test
 	public void leavesTextWithNoLabelAlone()
 	{
 		assertEquals("2277", SailingBadPlugin.stackLabelAboveNumber("2277"));
@@ -116,6 +198,16 @@ public class SailingBadTextTest
 				"2376<br>313,791,913",
 				2277,
 				299_791_913L));
+	}
+
+	@Test
+	public void identifiesOnlyTheSailingExperienceTooltip()
+	{
+		assertTrue(SailingBadPlugin.isSailingExperienceTooltip(
+			"<col=ff981f>Sailing XP:</col><br>Next level at:<br>Remaining XP:"));
+		assertFalse(SailingBadPlugin.isSailingExperienceTooltip("Total XP:"));
+		assertFalse(SailingBadPlugin.isSailingExperienceTooltip("Sailing:<br>XP:"));
+		assertFalse(SailingBadPlugin.isSailingExperienceTooltip(null));
 	}
 
 	@Test
